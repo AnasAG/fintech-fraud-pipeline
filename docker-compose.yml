@@ -1,0 +1,114 @@
+version: "3.9"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# fintech-fraud-pipeline — full local stack
+#
+# Services:
+#   postgres   → stores prediction logs; queried by the dashboard
+#   mlflow     → experiment tracking UI at http://localhost:5000
+#   api        → FastAPI scoring service at http://localhost:8000
+#   dashboard  → Streamlit monitoring at http://localhost:8501
+#
+# Usage:
+#   docker-compose up --build        # start everything
+#   docker-compose up postgres mlflow  # start only infra (for local dev)
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Postgres ────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fraud_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fraud_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-fraud_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fraud_user}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── MLflow tracking server ───────────────────────────────────────────────────
+  # Uses SQLite as the backend store (simpler than Postgres for local dev).
+  # Artifacts (model files) are written to /mlruns/artifacts.
+  mlflow:
+    image: python:3.11-slim
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlruns:/mlruns
+    command: >
+      bash -c "pip install mlflow --quiet &&
+               mlflow server
+               --host 0.0.0.0
+               --port 5000
+               --backend-store-uri sqlite:////mlruns/mlflow.db
+               --default-artifact-root /mlruns/artifacts"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── FastAPI scoring service ──────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-fraud_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fraud_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-fraud_db}
+      MODEL_PATH: /app/models/champion
+      THRESHOLD_APPROVE: ${THRESHOLD_APPROVE:-0.3}
+      THRESHOLD_DECLINE: ${THRESHOLD_DECLINE:-0.7}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mlflow:
+        condition: service_healthy
+    volumes:
+      - ./models:/app/models            # mount trained model artifacts
+      - ./data/processed:/app/data/processed
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Streamlit monitoring dashboard ──────────────────────────────────────────
+  dashboard:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dashboard
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    environment:
+      API_URL: http://api:8000
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-fraud_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fraud_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-fraud_db}
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - ./data/processed:/app/data/processed
+
+volumes:
+  postgres_data:
