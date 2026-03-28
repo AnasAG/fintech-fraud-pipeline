@@ -39,3 +39,7 @@ env/
 
 # Feature pipeline artifact (rebuilt during training)
 src/features/pipeline.pkl
+
+# Private project notes — keep locally, never push
+PRD.md
+*.private.md
