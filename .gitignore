@@ -1,0 +1,41 @@
+# Data — never commit raw or processed data
+data/raw/
+data/processed/
+
+# MLflow experiment runs — regenerated locally
+mlruns/
+
+# Trained model artifacts
+models/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# Environments
+.env
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# Feature pipeline artifact (rebuilt during training)
+src/features/pipeline.pkl
