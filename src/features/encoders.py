@@ -73,7 +73,10 @@ class TargetEncoder(BaseEstimator, TransformerMixin):
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         X = X.copy()
         for col in self.cols:
-            X[col] = X[col].map(self.encoding_map_[col]).fillna(self.global_mean_)
+            if col not in X.columns:
+                X[col] = self.global_mean_
+            else:
+                X[col] = X[col].map(self.encoding_map_[col]).fillna(self.global_mean_)
         return X
 
     def fit_transform_train(self, X: pd.DataFrame, y: pd.Series) -> pd.DataFrame:
@@ -128,6 +131,9 @@ class FrequencyEncoder(BaseEstimator, TransformerMixin):
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         X = X.copy()
         for col in self.cols:
-            # Unseen values at inference → 0.0 (never seen = rare = suspicious)
-            X[col] = X[col].map(self.freq_map_[col]).fillna(0.0)
+            if col not in X.columns:
+                X[col] = 0.0
+            else:
+                # Unseen values at inference → 0.0 (never seen = rare = suspicious)
+                X[col] = X[col].map(self.freq_map_[col]).fillna(0.0)
         return X

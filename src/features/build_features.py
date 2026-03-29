@@ -136,11 +136,15 @@ def add_velocity_features(df: pd.DataFrame) -> pd.DataFrame:
     you would need a real-time feature store (Redis, Feast) to compute these
     over a live window. For this portfolio project, we pre-compute them.
     """
-    df = df.sort_values("TransactionDT")
+    if "TransactionDT" in df.columns:
+        df = df.sort_values("TransactionDT")
 
-    # Simple proxy: count of transactions per card in the dataset
-    # (real velocity requires time-windowed groupby at serving time)
-    card_count = df.groupby("card1")["TransactionID"].transform("count")
+    # At inference time (single row), TransactionID is absent — fall back to 1/amount/amount
+    if "TransactionID" in df.columns:
+        card_count = df.groupby("card1")["TransactionID"].transform("count")
+    else:
+        card_count = pd.Series(1, index=df.index)
+
     card_total = df.groupby("card1")["TransactionAmt"].transform("sum")
     card_mean = df.groupby("card1")["TransactionAmt"].transform("mean")
 
