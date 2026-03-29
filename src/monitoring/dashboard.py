@@ -141,109 +141,111 @@ with col_meta:
     })
 
 # ── Simulation loop ───────────────────────────────────────────────────────────
+from src.features.build_features import build_features
+import numpy as np
+
 start_btn = st.button("▶ Start simulation", type="primary")
 
-if start_btn or st.session_state.batch_idx > 0:
-    # Score next batch
-    start = st.session_state.batch_idx * batch_size
-    end = start + batch_size
-    batch = test_df.iloc[start:end]
+if start_btn:
+    while True:
+        start = st.session_state.batch_idx * batch_size
+        batch = test_df.iloc[start : start + batch_size]
 
-    if batch.empty:
-        st.success("Simulation complete — all test transactions replayed.")
-        st.stop()
+        if batch.empty:
+            alert_placeholder.success("Simulation complete — all test transactions replayed.")
+            break
 
-    # Score the batch
-    batch_results = []
-    for _, row in batch.iterrows():
+        # Score entire batch in one model call (not row-by-row)
         try:
-            result = predictor.predict(row.to_dict())
-            batch_results.append({
-                "fraud_probability": result["fraud_probability"],
-                "decision": result["decision"],
-                "isFraud": row.get("isFraud"),
-                "TransactionAmt": row.get("TransactionAmt"),
-                "batch": st.session_state.batch_idx,
-            })
-        except Exception:
-            pass
+            X_batch, _, _ = build_features(batch.copy(), fit=False, encoders=predictor.encoders)
+            for col in predictor.feature_columns:
+                if col not in X_batch.columns:
+                    X_batch[col] = np.nan
+            X_batch = X_batch[predictor.feature_columns].fillna(-999)
+            probs = predictor.model.predict_proba(X_batch)[:, 1]
 
-    new_rows = pd.DataFrame(batch_results)
-    st.session_state.predictions_log = pd.concat(
-        [st.session_state.predictions_log, new_rows], ignore_index=True
-    )
-    st.session_state.batch_idx += 1
+            batch_results = []
+            for prob, (_, row) in zip(probs, batch.iterrows()):
+                if prob < threshold_approve:
+                    decision = "APPROVE"
+                elif prob > threshold_decline:
+                    decision = "DECLINE"
+                else:
+                    decision = "REVIEW"
+                batch_results.append({
+                    "fraud_probability": round(float(prob), 4),
+                    "decision": decision,
+                    "isFraud": row.get("isFraud"),
+                    "TransactionAmt": row.get("TransactionAmt"),
+                    "batch": st.session_state.batch_idx,
+                })
 
-    log = st.session_state.predictions_log
-    window_metrics = compute_window_metrics(log)
-
-    # ── Update metrics ────────────────────────────────────────────────────────
-    metrics_placeholder["total"].metric("Total scored", f"{len(log):,}")
-    metrics_placeholder["approve_pct"].metric("APPROVE", f"{window_metrics.get('pct_approve', 0):.1%}")
-    metrics_placeholder["review_pct"].metric("REVIEW", f"{window_metrics.get('pct_review', 0):.1%}")
-    metrics_placeholder["decline_pct"].metric("DECLINE", f"{window_metrics.get('pct_decline', 0):.1%}")
-    fraud_rate = window_metrics.get("actual_fraud_rate")
-    metrics_placeholder["fraud_rate"].metric(
-        "Actual fraud rate",
-        f"{fraud_rate:.2%}" if fraud_rate is not None else "—"
-    )
-
-    # ── Score distribution histogram ─────────────────────────────────────────
-    fig_hist = px.histogram(
-        log,
-        x="fraud_probability",
-        nbins=50,
-        color_discrete_sequence=["#EF553B"],
-        labels={"fraud_probability": "Fraud Probability"},
-    )
-    fig_hist.add_vline(x=threshold_approve, line_dash="dash", line_color="green", annotation_text="Approve")
-    fig_hist.add_vline(x=threshold_decline, line_dash="dash", line_color="red", annotation_text="Decline")
-    score_chart.plotly_chart(fig_hist, use_container_width=True)
-
-    # ── Decision breakdown over batches ───────────────────────────────────────
-    decision_by_batch = (
-        log.groupby(["batch", "decision"]).size().reset_index(name="count")
-    )
-    fig_decisions = px.bar(
-        decision_by_batch,
-        x="batch",
-        y="count",
-        color="decision",
-        color_discrete_map={"APPROVE": "#00CC96", "REVIEW": "#FFA15A", "DECLINE": "#EF553B"},
-        barmode="stack",
-    )
-    decision_chart.plotly_chart(fig_decisions, use_container_width=True)
-
-    # ── Drift indicator: rolling mean score ───────────────────────────────────
-    rolling_mean = log.groupby("batch")["fraud_probability"].mean().reset_index()
-    baseline = rolling_mean["fraud_probability"].iloc[:3].mean() if len(rolling_mean) >= 3 else None
-
-    fig_drift = px.line(
-        rolling_mean,
-        x="batch",
-        y="fraud_probability",
-        labels={"fraud_probability": "Mean fraud probability", "batch": "Batch"},
-    )
-    if baseline:
-        fig_drift.add_hline(
-            y=baseline + 2 * rolling_mean["fraud_probability"].std(),
-            line_dash="dash",
-            line_color="red",
-            annotation_text="2σ alert threshold",
-        )
-    drift_chart.plotly_chart(fig_drift, use_container_width=True)
-
-    # ── Alert zone ────────────────────────────────────────────────────────────
-    if baseline and len(rolling_mean) > 3:
-        current = rolling_mean["fraud_probability"].iloc[-1]
-        threshold_2sigma = baseline + 2 * rolling_mean["fraud_probability"].std()
-        if current > threshold_2sigma:
-            alert_placeholder.error(
-                f"ALERT: Mean fraud score ({current:.3f}) exceeds 2σ baseline threshold "
-                f"({threshold_2sigma:.3f}). Possible fraud spike or model drift."
+            new_rows = pd.DataFrame(batch_results)
+            st.session_state.predictions_log = pd.concat(
+                [st.session_state.predictions_log, new_rows], ignore_index=True
             )
-        else:
-            alert_placeholder.success("Score distribution within normal range.")
+        except Exception as e:
+            alert_placeholder.warning(f"Batch scoring error: {e}")
+            break
 
-    time.sleep(tick_delay)
-    st.rerun()
+        st.session_state.batch_idx += 1
+        log = st.session_state.predictions_log
+        window_metrics = compute_window_metrics(log)
+
+        # ── Update metrics in-place (no page flash) ───────────────────────────
+        metrics_placeholder["total"].metric("Total scored", f"{len(log):,}")
+        metrics_placeholder["approve_pct"].metric("APPROVE", f"{window_metrics.get('pct_approve', 0):.1%}")
+        metrics_placeholder["review_pct"].metric("REVIEW", f"{window_metrics.get('pct_review', 0):.1%}")
+        metrics_placeholder["decline_pct"].metric("DECLINE", f"{window_metrics.get('pct_decline', 0):.1%}")
+        fraud_rate = window_metrics.get("actual_fraud_rate")
+        metrics_placeholder["fraud_rate"].metric(
+            "Actual fraud rate",
+            f"{fraud_rate:.2%}" if fraud_rate is not None else "—"
+        )
+
+        # ── Score distribution ────────────────────────────────────────────────
+        fig_hist = px.histogram(
+            log, x="fraud_probability", nbins=50,
+            color_discrete_sequence=["#EF553B"],
+            labels={"fraud_probability": "Fraud Probability"},
+        )
+        fig_hist.add_vline(x=threshold_approve, line_dash="dash", line_color="green", annotation_text="Approve")
+        fig_hist.add_vline(x=threshold_decline, line_dash="dash", line_color="red", annotation_text="Decline")
+        score_chart.plotly_chart(fig_hist, use_container_width=True)
+
+        # ── Decision breakdown ────────────────────────────────────────────────
+        decision_by_batch = log.groupby(["batch", "decision"]).size().reset_index(name="count")
+        fig_decisions = px.bar(
+            decision_by_batch, x="batch", y="count", color="decision",
+            color_discrete_map={"APPROVE": "#00CC96", "REVIEW": "#FFA15A", "DECLINE": "#EF553B"},
+            barmode="stack",
+        )
+        decision_chart.plotly_chart(fig_decisions, use_container_width=True)
+
+        # ── Drift indicator ───────────────────────────────────────────────────
+        rolling_mean = log.groupby("batch")["fraud_probability"].mean().reset_index()
+        baseline = rolling_mean["fraud_probability"].iloc[:3].mean() if len(rolling_mean) >= 3 else None
+        fig_drift = px.line(
+            rolling_mean, x="batch", y="fraud_probability",
+            labels={"fraud_probability": "Mean fraud probability", "batch": "Batch"},
+        )
+        if baseline:
+            fig_drift.add_hline(
+                y=baseline + 2 * rolling_mean["fraud_probability"].std(),
+                line_dash="dash", line_color="red", annotation_text="2σ alert threshold",
+            )
+        drift_chart.plotly_chart(fig_drift, use_container_width=True)
+
+        # ── Alert zone ────────────────────────────────────────────────────────
+        if baseline and len(rolling_mean) > 3:
+            current = rolling_mean["fraud_probability"].iloc[-1]
+            threshold_2sigma = baseline + 2 * rolling_mean["fraud_probability"].std()
+            if current > threshold_2sigma:
+                alert_placeholder.error(
+                    f"ALERT: Mean fraud score ({current:.3f}) exceeds 2σ baseline "
+                    f"({threshold_2sigma:.3f}). Possible fraud spike or model drift."
+                )
+            else:
+                alert_placeholder.success("Score distribution within normal range.")
+
+        time.sleep(tick_delay)
