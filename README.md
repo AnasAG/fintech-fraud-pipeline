@@ -111,7 +111,7 @@ fintech-fraud-pipeline/
 |---|---|---|
 | FastAPI | http://localhost:8000 | Fraud scoring endpoint |
 | API Docs | http://localhost:8000/docs | OpenAPI spec |
-| MLflow UI | http://localhost:5000 | Experiment tracking |
+| MLflow UI | http://localhost:5001 | Experiment tracking |
 | Streamlit | http://localhost:8501 | Monitoring dashboard |
 
 ---
@@ -167,4 +167,4 @@ See [docs/dataset_notes.md](docs/dataset_notes.md) for engineering gotchas speci
 
 ## Author
 
-Anas Abughazaleh · [LinkedIn](https://linkedin.com/in/anasabughazaleh) · [GitHub](https://github.com/anasabughazaleh)
+Anas Abughazaleh · [LinkedIn](https://www.linkedin.com/in/anas-abughazaleh/) · [GitHub](https://github.com/anasag)
