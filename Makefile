@@ -72,14 +72,14 @@ serve:
 	@echo "→ Starting FastAPI scoring service on port 8000..."
 	@echo "  Docs: http://localhost:8000/docs"
 	@echo "  Health: http://localhost:8000/health"
-	$(VENV)/bin/uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
+	PYTHONPATH=. $(VENV)/bin/uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 # Requires data/processed/merged.parquet and the API running (make serve).
 .PHONY: dashboard
 dashboard:
 	@echo "→ Starting Streamlit monitoring dashboard on port 8501..."
-	$(VENV)/bin/streamlit run src/monitoring/dashboard.py \
+	PYTHONPATH=. $(VENV)/bin/streamlit run src/monitoring/dashboard.py \
 		--server.port 8501 \
 		--server.address 0.0.0.0
 
