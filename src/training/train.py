@@ -52,7 +52,7 @@ load_dotenv()
 
 PROCESSED_DIR = Path(os.getenv("PROCESSED_DATA_PATH", "data/processed"))
 MODEL_DIR = Path("models")
-MLFLOW_URI = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
+MLFLOW_URI = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5001")
 EXPERIMENT_NAME = "fintech-fraud-detection"
 
 TRAIN_FRAC = 0.70
