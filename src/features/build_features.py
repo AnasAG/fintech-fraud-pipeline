@@ -33,6 +33,7 @@ from loguru import logger
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from typing import Optional
 
 from src.features.encoders import FrequencyEncoder, TargetEncoder
 
@@ -181,7 +182,7 @@ def build_features(
     df: pd.DataFrame,
     target_col: str = "isFraud",
     fit: bool = True,
-    encoders: dict | None = None,
+    encoders: Optional[dict] = None,
 ) -> tuple[pd.DataFrame, pd.Series, dict]:
     """
     Full feature engineering pipeline.
